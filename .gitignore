@@ -1,0 +1,4 @@
+.env
+src/custom_Chromium/
+src/creds/*.json
+*bdp_env/
