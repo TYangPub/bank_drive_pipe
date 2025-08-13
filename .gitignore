@@ -4,3 +4,4 @@ src/creds/*.json
 *bdp_env/
 CLAUDE.md
 downloads/*
+src/__pycache__
