@@ -3,5 +3,5 @@ src/custom_Chromium/
 src/creds/*.json
 *bdp_env/
 CLAUDE.md
-downloads/*
+downloads/*.csv
 src/__pycache__
