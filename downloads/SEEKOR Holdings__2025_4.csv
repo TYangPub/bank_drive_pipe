@@ -1,0 +1,6 @@
+Details,Posting Date,Description,Amount,Type,Balance,Check or Slip #
+DEBIT,04/28/2025,"Online Transfer to CHK ...8893 transaction#: 24572779901 04/28",-30000.00,ACCT_XFER,105235.51,,
+CREDIT,04/28/2025,"Online Transfer from CHK ...6040 transaction#: 24572612833",30000.00,ACCT_XFER,135235.51,,
+CREDIT,04/28/2025,"Online Transfer from CHK ...3759 transaction#: 24572627087",60000.00,ACCT_XFER,105235.51,,
+CHECK,04/21/2025,"CHECK 123  04/21",-625.00,CHECK_PAID,45235.51,123,
+DEBIT,04/14/2025,"Online Transfer to CHK ...3890 transaction#: 24389530208 04/14",-20000.00,ACCT_XFER,45860.51,,

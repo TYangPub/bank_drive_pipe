@@ -1,5 +1,6 @@
 import asyncio
 import calendar
+import csv
 import cv2
 import datetime
 import gc
@@ -11,6 +12,7 @@ import pyautogui
 import time
 from dataclasses import dataclass, field
 from dotenv import load_dotenv
+from functools import partial
 from typing import Any, Callable, ClassVar, Optional
 
 # from playwright.sync_api import sync_playwright
@@ -81,9 +83,24 @@ class logging:
             });
         """)
 
+class state_track:
+    def __init__(self):
+        self.step = None
+        self.account = None
+        self.status = "Not started"
+        self.error = None
+
+    def update(self, account, step, status, error=None):
+        self.account = account
+        self.step = step
+        self.status = status
+        self.error = error
+
 class login:
     def __init__(self, page):
         self.page = page
+    
+    base_dir = os.path.dirname(os.path.abspath(__file__))
 
     async def gotosite(self):
         await self.page.goto("https://www.chase.com/business")
@@ -91,7 +108,7 @@ class login:
         await self.page.click('text="Sign in"')
 
     async def cred_fill(self, paths: list, cred):
-        image_found = False
+        image_found = False 
         for path in paths:
             try:
                 template = cv2.imread(path, cv2.IMREAD_GRAYSCALE)
@@ -112,12 +129,12 @@ class login:
                     break
                 else:
                     pass
-                    # print(f"Image not found with {path}")
+                    print(f"Image not found with {path}")
             except Exception as e:
                 print(f"Error: {e}")
 
         if not image_found:
-            # print("Image not found")
+            print("Image not found")
             return
 
         pyautogui.write(cred, interval=0.08)
@@ -147,12 +164,19 @@ class login:
             except Exception as e:
                 print(f"Error: {e}")
 
-    async def login(self):
+    async def login(self, bank):
         await self.gotosite()
         time.sleep(3)
-        await self.cred_fill(["tools/photos/chaseBus_Username3.png", "tools/photos/chaseBus_Username1.png", "tools/photos/chaseBus_Username2.png"], user)
-        await self.cred_fill(["tools/photos/chaseBus_Password3.png", "tools/photos/chaseBus_Password1.png","tools/photos/chaseBus_Password2.png"], password)
-        await self.submit_btn(["tools/photos/chaseBus_submit1.png", "tools/photos/chaseBus_submit2.png", "tools/photos/chaseBus_submit3.png"])
+        photos_dir = os.path.join(login.base_dir, "photos", str(bank))
+        # await self.cred_fill([file for file in os.listdir(photos_dir)
+        #                       if os.path.isfile(os.path.join(photos_dir, file)) and "Username" in file], user)
+        # await self.cred_fill([file for file in os.listdir(photos_dir) if os.path.isfile(os.path.join(photos_dir, file)) and "Password" in file], password)
+        # await self.submit_btn([file for file in os.listdir(photos_dir) if os.path.isfile(os.path.join(photos_dir, file)) and "submit" in file])
+
+        await self.cred_fill([os.path.join(photos_dir, file) for file in os.listdir(photos_dir) if "Username" in file], user)
+        await self.cred_fill([os.path.join(photos_dir, file) for file in os.listdir(photos_dir) if "Password" in file], password)
+        await self.submit_btn([os.path.join(photos_dir, file) for file in os.listdir(photos_dir) if "submit" in file])
+        # print([file for file in os.listdir(photos_dir) if "Username" in file])
         return
 
 class csv_d:
@@ -187,12 +211,12 @@ class csv_d:
 
     async def init_click_download(self):
         download_selectors = [
+            '[id*="download-activity"]',
             '#quick-action-download-activity-tooltip-info',
             '#quick-action-download-activity-tooltip-button',
             '[data-testid="quick-action-download-activity-tooltip-button"]',
             '[data-testid="quick-action-download-activity-tooltip-info"]',
             'button:has-text("Download")',
-            '[id*="download-activity"]',
         ]
         for selector in download_selectors:
             try:
@@ -216,8 +240,8 @@ class csv_d:
             return True
         except TimeoutError:
             return False
-        except Exception as e:
-            print(f"Unexpected error w/ overview: {e}")
+        except Exception:
+            print(f"Overview not found")
             return False
 
     async def verify_acct(self, name, num):
@@ -277,7 +301,7 @@ class csv_d:
             raise RuntimeError("Error") from e
         
     async def set_date_range(self, month, year):
-        timer = Timer(name="choosing range")
+        # timer = Timer(name="choosing range")
 
         start_date = datetime.date(year, month, 1).strftime('%m/%d/%Y')
         end_date = datetime.date(year, month, calendar.monthrange(year, month)[1]).strftime('%m/%d/%Y')
@@ -297,10 +321,10 @@ class csv_d:
             
             for selector in date_range_selectors:
                 try:
-                    timer.start()
+                    # timer.start()
                     await self.page.wait_for_selector(selector, state='visible', timeout=3000)
                     await self.page.click(selector)
-                    timer.stop()
+                    # timer.stop()
                     # print(f"Selected with {selector}")
                     break
                 except:
@@ -381,8 +405,15 @@ class csv_d:
                 
                 # Wait for page to load
                 await self.page.wait_for_load_state('networkidle', timeout=3000)
-                return True
                 
+                
+                # perform another check overview
+                if await self.check_overview():
+                    overview_success = await self.init_click_download()
+                    if not overview_success:
+                        raise RuntimeError("Failed to click out of overview")
+
+                return True
             except Exception as e:
                 last_exception = e
                 continue
@@ -405,24 +436,71 @@ class csv_d:
         return
     
     async def norm_download(self, name, num, month, year):
-        try:
-            if await self.check_overview():
-                success = await self.init_click_download()
-                if not success:
-                    raise RuntimeError("Failed to click out of overview")
-            print("verify")
-            await self.verify_acct(name, num)
-            print("file type")
-            await self.set_file_type()
-            print("date range")
-            await self.set_date_range(month, year)
-            print("download")
-            await self.execute_download("downloads/", name, month, year)
-            print("other")
-            await self.click_download_other_activity()
-            await asyncio.sleep(3)
-        except Exception as e:
-            print(f"Error: {e}")
+        steps = [
+            ("check_overview", self.check_overview),
+            ("verify_acct", partial(self.verify_acct, name, num)),
+            ("set_file_type", self.set_file_type),
+            ("set_date_range", partial(self.set_date_range, month, year)),
+            ("execute_download", partial(self.execute_download, "downloads/", name, month, year)),
+            ("click_download_other_activity", self.click_download_other_activity),
+        ]
+
+        state = state_track()
+
+        # try:
+        #     if await self.check_overview():
+        #         success = await self.init_click_download()
+        #         if not success:
+        #             raise RuntimeError("Failed to click out of overview")
+        #     print("- verify")
+        #     await self.verify_acct(name, num)
+        #     print("- file type")
+        #     await self.set_file_type()
+        #     print("- date range")
+        #     await self.set_date_range(month, year)
+        #     print("- download")
+        #     await self.execute_download("downloads/", name, month, year)
+        #     print("- other")
+        #     await self.click_download_other_activity()
+        #     await asyncio.sleep(1.5)
+        # except Exception as e:
+        #     print(f"Error: {e}")
+
+        for i, (step_name, func) in enumerate(steps):
+            state.update(step=step_name, account=name, status="running")
+            try:
+                if step_name == "check_overview":
+                    if await func():
+                        success = await self.init_click_download()
+                        if not success:
+                            state.update(step=step_name, account=name, status="failed")
+                            raise RuntimeError("Failed to click out of overview")
+                else:
+                    await func()
+            except Exception as e:
+                state.update(step=step_name, account=name, status="failed", error=str(e))
+                print(state)
+                break
+            else:
+                state.update(step=step_name, account=name, status="success")
+
+class null_handle:
+    def __init__(self, page):
+        self.page = page
+    
+    downloads = 
+    n_found = set([acct['name'] for acct in bank_accts]) - set(downloads)
+
+    # async def check_downloads(self, d_path, bank_accts):
+    #     downloads = [name[:-12] for name in os.listdir(str(d_path))]
+    #     n_found = set([acct['name'] for acct in bank_accts]) - set(downloads)
+    #     try:
+    #         for acct in n_found:
+    #             acct_name = acct
+    #             acct_num = bank_accts[bank_accts['name'] == acct_name]
+
+    async def gen_blank(res_path, bank_accts)
+
 
 async def main():
     async with async_playwright() as p:
@@ -440,38 +518,76 @@ async def main():
         await click_logger.track_clicks()
 
         login_instance = login(page)
-        await login_instance.login()
+        await login_instance.login("chase_bus")
 
         csv_instance = csv_d(page)
 
         # Example of async command loop (simplified)
         cont = True
         try:
-            with open('bank_accts.json', 'r') as file:
+            with open('creds/bank_accts.json', 'r') as file:
                 bank_accts = json.load(file)
         except Exception:
-            with open('tools/bank_accts.json', 'r') as file:
+            with open('src/creds/bank_accts.json', 'r') as file:
                 bank_accts = json.load(file)
+
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        photos_dir = os.path.join(base_dir, "photos", str("chase_bus"))
+        # print([file for file in os.listdir(photos_dir) if os.path.isfile(os.path.join(photos_dir)) and "Username" in file])
 
         while cont:
             debug_input = await asyncio.to_thread(input, "Enter a command: ")
             match debug_input:
                 case "user":
-                    await login.cred_fill(["tools/photos/chaseBus_Username1.png", "tools/photos/chaseBus_Username2.png", "tools/photos/chaseBus_Username3.png"], user)
+                    await login_instance.cred_fill([os.path.join(photos_dir, file) for file in os.listdir(photos_dir) if "Username" in file], user)
                 case "pass":
-                    await login.cred_fill(["tools/photos/chaseBus_Password1.png", "tools/photos/chaseBus_Password2.png", "tools/photos/chaseBus_Password3.png"], password)
+                    await login_instance.cred_fill([os.path.join(photos_dir, file) for file in os.listdir(photos_dir) if "Password" in file], password)
                 case "loop":
+                    results = []
                     for acct in bank_accts:
                         try:
                             await csv_instance.norm_download(acct['name'], acct['num'], 4, 2025)
-                            print(f"Downloaded {acct['name']}({acct['num']}) for March 2023\n")
+                            print(f"Downloaded {acct['name']}({acct['num']}) for March 2025\n")
                             gc.collect()
+                            results.append({'account': acct, 'status': "success"})
                         except Exception as e:
-                            print(f"Error: {e}")
-                            break
+                            print(f"Error for account {acct['name']}({acct['num']}): {e}")
+                            results.append({'account': acct, 'status': 'error', 'error': str(e)})
+                            continue
+                    for r in results:
+                        print(r)
                 case "exit":
                     await context.close()
                     cont = False
 
+class testing:
+    # def __init__(self, page):
+    #     self.page = page
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+
+    def access_files(self, bank):
+        photo_dir = os.path.join(testing.base_dir, "photos", str(bank))
+        print(photo_dir)
+        all_users = os.listdir(photo_dir)
+        print(all_users)
+        return
+
+async def debugging():
+    # async with async_playwright() as p:
+    #     context = await p.chromium.launch_persistent_context(
+    #         user_data_dir,
+    #         headless=False,
+    #         slow_mo=1000,
+    #         viewport={"width": 1920, "height": 1040},
+    #         accept_downloads=True
+    #     )
+    #     page = await context.new_page()
+    try:
+        tester = testing()
+        tester.access_files("chase_bus")
+    except Exception as e:
+        print(f"Error: {e}")
+
 if __name__ == "__main__":
+    # asyncio.run(debugging())
     asyncio.run(main())

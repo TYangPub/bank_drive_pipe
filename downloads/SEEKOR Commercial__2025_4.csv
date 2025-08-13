@@ -1,0 +1,3 @@
+Details,Posting Date,Description,Amount,Type,Balance,Check or Slip #
+DEBIT,04/28/2025,"Online Transfer to CHK ...8289 transaction#: 24572627087 04/28",-60000.00,ACCT_XFER,12448.14,,
+CREDIT,04/24/2025,"ORIG CO NAME:Series P               ORIG ID:9823690735 DESC DATE:       CO ENTRY DESCR:ACH PaymenSEC:PPD    TRACE#:073911061868413 EED:250424   IND ID:                             IND NAME:SEEKOR Commercial Prop TRN: 1141868413TC",11834.29,ACH_CREDIT,72448.14,,

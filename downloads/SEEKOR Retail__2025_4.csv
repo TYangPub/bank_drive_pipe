@@ -1,0 +1,5 @@
+Details,Posting Date,Description,Amount,Type,Balance,Check or Slip #
+DEBIT,04/28/2025,"Payment to Chase card ending in 9899 04/28",-1023.26,LOAN_PMT,12476.55,,
+DEBIT,04/21/2025,"Payment to Chase card ending in 9899 04/21",-1261.58,LOAN_PMT,13499.81,,
+DEBIT,04/14/2025,"Payment to Chase card ending in 9899 04/14",-14239.79,LOAN_PMT,14761.39,,
+DEBIT,04/01/2025,"Online Transfer to  CHK ...2299 transaction#: 23881979266 04/01",-5000.00,ACCT_XFER,29001.18,,
