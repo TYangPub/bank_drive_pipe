@@ -18,9 +18,9 @@ class test:
         # print(test.base_dir)
         return(test.base_dir)
 
-downloads = [name[:-12] for name in os.listdir("downloads")]
-with open('src/creds/bank_accts.json', 'r') as file:
-    bank_accts = json.load(file)
+# downloads = [name[:-12] for name in os.listdir("downloads")]
+# with open('src/creds/bank_accts.json', 'r') as file:
+#     bank_accts = json.load(file)
 
 # n_found = set([acct['name'] for acct in bank_accts]) - set(downloads)
 # print(n_found)
@@ -43,5 +43,12 @@ def check_downloads(d_path, bank_accts):
 #         w = csv.DictWriter(f, fieldnames=col_names)
 #         w.writeheader()
 
-def logging():
-    pass
+def file_loc():
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    scraper_dir = os.path.join(current_dir, "scraper_profiles")
+
+    print(current_dir)
+    print(scraper_dir)
+
+if __name__ == "__main__":
+    file_loc()

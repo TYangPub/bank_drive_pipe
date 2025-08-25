@@ -102,10 +102,18 @@ class login:
     
     base_dir = os.path.dirname(os.path.abspath(__file__))
 
+    async def launch_and_navigate(self):
+        """Launch browser and navigate to Chase Business site (no login)"""
+        await self.page.goto("https://www.chase.com/business")
+        print("🌐 Browser launched and navigated to Chase Business")
+        return True
+
     async def gotosite(self):
+        """Navigate to site and click sign in button"""
         await self.page.goto("https://www.chase.com/business")
         await self.page.wait_for_selector('text="Sign in"', state='visible', timeout=3000)
         await self.page.click('text="Sign in"')
+        print("🔐 Clicked Sign In button")
 
     async def cred_fill(self, paths: list, cred):
         image_found = False 
@@ -164,19 +172,38 @@ class login:
             except Exception as e:
                 print(f"Error: {e}")
 
+    async def fill_credentials_only(self, bank):
+        """Fill username and password without navigating or submitting"""
+        print("📝 Filling credentials...")
+        time.sleep(2)  # Wait for page to stabilize
+        
+        # Go up one level from scraper_profiles to src, then to photos/chaseBus/chaseBus
+        photos_dir = os.path.join(os.path.dirname(login.base_dir), "photos", "chaseBus", str(bank))
+        
+        # Fill username
+        await self.cred_fill([os.path.join(photos_dir, file) for file in os.listdir(photos_dir) if "Username" in file], user)
+        time.sleep(1)
+        
+        # Fill password
+        await self.cred_fill([os.path.join(photos_dir, file) for file in os.listdir(photos_dir) if "Password" in file], password)
+        print("✅ Credentials filled")
+        return
+
+    async def submit_login(self, bank):
+        """Submit the login form"""
+        print("🔐 Submitting login...")
+        photos_dir = os.path.join(os.path.dirname(login.base_dir), "photos", "chaseBus", str(bank))
+        await self.submit_btn([os.path.join(photos_dir, file) for file in os.listdir(photos_dir) if "submit" in file])
+        print("✅ Login submitted")
+        return
+
     async def login(self, bank):
+        """Full login process: navigate, fill credentials, and submit"""
         await self.gotosite()
         time.sleep(3)
-        photos_dir = os.path.join(login.base_dir, "photos", str(bank))
-        # await self.cred_fill([file for file in os.listdir(photos_dir)
-        #                       if os.path.isfile(os.path.join(photos_dir, file)) and "Username" in file], user)
-        # await self.cred_fill([file for file in os.listdir(photos_dir) if os.path.isfile(os.path.join(photos_dir, file)) and "Password" in file], password)
-        # await self.submit_btn([file for file in os.listdir(photos_dir) if os.path.isfile(os.path.join(photos_dir, file)) and "submit" in file])
-
-        await self.cred_fill([os.path.join(photos_dir, file) for file in os.listdir(photos_dir) if "Username" in file], user)
-        await self.cred_fill([os.path.join(photos_dir, file) for file in os.listdir(photos_dir) if "Password" in file], password)
-        await self.submit_btn([os.path.join(photos_dir, file) for file in os.listdir(photos_dir) if "submit" in file])
-        # print([file for file in os.listdir(photos_dir) if "Username" in file])
+        await self.fill_credentials_only(bank)
+        time.sleep(1)
+        await self.submit_login(bank)
         return
 
 class csv_d:
@@ -422,15 +449,16 @@ class csv_d:
         else:
             raise RuntimeError("No button found")
 
-    def init_download(self, name, num, month, year):
+    async def init_download(self, name, num, month, year):
+        """Initial download setup - select account and set up download parameters"""
         try:
-            self.init_sel_acct(name, num)
-            self.init_click_download()
-            self.verify_acct(name, num)
-            self.set_file_type()
-            self.set_date_range(month, year)
-            self.execute_download("downloads/", name, month, year)
-            self.click_download_other_activity()
+            await self.init_sel_acct(name, num)
+            await self.init_click_download()
+            await self.verify_acct(name, num)
+            await self.set_file_type()
+            await self.set_date_range(month, year)
+            await self.execute_download("downloads/", name, month, year)
+            await self.click_download_other_activity()
         except Exception as e:
             print(f"Error: {e}")
         return
@@ -485,11 +513,18 @@ class csv_d:
                 state.update(step=step_name, account=name, status="success")
 
 class null_handle:
-    def __init__(self, page):
+    def __init__(self, bank_accts, page):
         self.page = page
+        self.bank_accts = bank_accts
     
-    downloads = 
-    n_found = set([acct['name'] for acct in bank_accts]) - set(downloads)
+    def get_missing_downloads(self, downloads_path):
+        """Check which accounts are missing downloads"""
+        try:
+            downloads = [name[:-12] for name in os.listdir(str(downloads_path)) if name.endswith('.csv')]
+            n_found = set([acct['name'] for acct in self.bank_accts]) - set(downloads)
+            return n_found
+        except Exception:
+            return set([acct['name'] for acct in self.bank_accts])
 
     # async def check_downloads(self, d_path, bank_accts):
     #     downloads = [name[:-12] for name in os.listdir(str(d_path))]
@@ -499,7 +534,8 @@ class null_handle:
     #             acct_name = acct
     #             acct_num = bank_accts[bank_accts['name'] == acct_name]
 
-    async def gen_blank(res_path, bank_accts)
+    async def gen_blank(res_path, bank_accts):
+        pass
 
 
 async def main():
@@ -525,14 +561,15 @@ async def main():
         # Example of async command loop (simplified)
         cont = True
         try:
-            with open('creds/bank_accts.json', 'r') as file:
+            with open('src/bank_acct_profiles/bank_accts.json', 'r') as file:
                 bank_accts = json.load(file)
         except Exception:
-            with open('src/creds/bank_accts.json', 'r') as file:
+            with open('bank_acct_profiles/bank_accts.json', 'r') as file:
                 bank_accts = json.load(file)
 
         base_dir = os.path.dirname(os.path.abspath(__file__))
-        photos_dir = os.path.join(base_dir, "photos", str("chase_bus"))
+        # Go up one level from scraper_profiles to src, then to photos/chaseBus/chaseBus
+        photos_dir = os.path.join(os.path.dirname(base_dir), "photos", "chaseBus", str("chaseBus"))
         # print([file for file in os.listdir(photos_dir) if os.path.isfile(os.path.join(photos_dir)) and "Username" in file])
 
         while cont:
@@ -566,7 +603,8 @@ class testing:
     base_dir = os.path.dirname(os.path.abspath(__file__))
 
     def access_files(self, bank):
-        photo_dir = os.path.join(testing.base_dir, "photos", str(bank))
+        # Go up one level from scraper_profiles to src, then to photos/chaseBus/chaseBus
+        photo_dir = os.path.join(os.path.dirname(testing.base_dir), "photos", "chaseBus", str(bank))
         print(photo_dir)
         all_users = os.listdir(photo_dir)
         print(all_users)

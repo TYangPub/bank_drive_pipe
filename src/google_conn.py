@@ -11,25 +11,78 @@ import pickle
 
 SCOPES = ['https://www.googleapis.com/auth/drive']
 
+def get_project_root():
+    """Get the project root directory"""
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    # If we're in src/, go up one level
+    if os.path.basename(current_dir) == 'src':
+        return os.path.dirname(current_dir)
+    return current_dir
+
+def get_creds_path():
+    """Get the credentials directory path"""
+    project_root = get_project_root()
+    return os.path.join(project_root, 'src', 'creds')
+
+def get_token_path():
+    """Get the token file path"""
+    return os.path.join(get_creds_path(), 'token.pickle')
+
+def get_client_secrets_path():
+    """Get the client secrets file path"""
+    return os.path.join(get_creds_path(), 'auto_files_cred.json')
 
 def authenticate_drive():
     creds = None
-    if os.path.exists('token.pickle'):
-        with open('token.pickle', 'rb') as token:
-            creds = pickle.load(token)
+    token_path = get_token_path()
+    
+    # Load existing token if it exists
+    if os.path.exists(token_path):
+        try:
+            with open(token_path, 'rb') as token:
+                creds = pickle.load(token)
+        except Exception as e:
+            print(f"Error loading token: {e}")
+            # If token is corrupted, delete it and start fresh
+            try:
+                os.remove(token_path)
+            except:
+                pass
+            creds = None
+    
+    # Check if we need to authenticate
     if not creds or not creds.valid:
         if creds and creds.expired and creds.refresh_token:
-            creds.refresh(Request())
-        else:
-            flow = InstalledAppFlow.from_client_secrets_file(
-                'tools/auto_files_cred.json', SCOPES)
+            try:
+                creds.refresh(Request())
+                print("Token refreshed successfully")
+            except Exception as e:
+                print(f"Token refresh failed: {e}")
+                creds = None
+        
+        if not creds:
+            # Need to do full authentication
+            client_secrets_path = get_client_secrets_path()
+            if not os.path.exists(client_secrets_path):
+                raise FileNotFoundError(f"Client secrets file not found: {client_secrets_path}")
+            
+            flow = InstalledAppFlow.from_client_secrets_file(client_secrets_path, SCOPES)
             creds = flow.run_local_server(port=0)
-        with open('token.pickle', 'wb') as token:
-            pickle.dump(creds, token)
+            print("New authentication completed")
+        
+        # Save the credentials
+        try:
+            os.makedirs(os.path.dirname(token_path), exist_ok=True)
+            with open(token_path, 'wb') as token:
+                pickle.dump(creds, token)
+            print(f"Token saved to: {token_path}")
+        except Exception as e:
+            print(f"Error saving token: {e}")
+    
     service = build('drive', 'v3', credentials=creds)
     return service
 
-def get_folder(service, folder_name):
+def get_folder(service, folder_name, silent=False):
     query = f"name='{folder_name}' and mimeType='application/vnd.google-apps.folder' and trashed=false"
     # results = service.files().list(q=query, fields="files(id, name)").execute()
     results = service.files().list(
@@ -41,13 +94,15 @@ def get_folder(service, folder_name):
     items = results.get('files', [])
 
     if not items:
-        print(f'No folder found with name: {folder_name}')
+        if not silent:
+            print(f'No folder found with name: {folder_name}')
         return None
     else:
-        print(f'Found folder: {items[0]["name"]} with ID: {items[0]["id"]}')
+        if not silent:
+            print(f'Found folder: {items[0]["name"]} with ID: {items[0]["id"]}')
         return items[0]["id"] 
 
-def get_subfolder_id(service, folder_name, parent_id):
+def get_subfolder_id(service, folder_name, parent_id, silent=False):
     query = f"name='{folder_name}' and mimeType='application/vnd.google-apps.folder' and trashed=false and '{parent_id}' in parents"
 
     results = service.files().list(
@@ -60,16 +115,19 @@ def get_subfolder_id(service, folder_name, parent_id):
 
     folders = results.get('files', [])
     if not folders:
-        print(f'No subfolder found with name: {folder_name} in parent ID: {parent_id}')
+        if not silent:
+            print(f'No subfolder found with name: {folder_name} in parent ID: {parent_id}')
         return None
     elif len(folders) > 1:
-        print(f'Multiple subfolders found with name: {folder_name} in parent ID: {parent_id}')
+        if not silent:
+            print(f'Multiple subfolders found with name: {folder_name} in parent ID: {parent_id}')
     
     folder = folders[0]
-    print(f'Found subfolder: {folder["name"]} with ID: {folder["id"]} in parent ID: {parent_id}')
+    if not silent:
+        print(f'Found subfolder: {folder["name"]} with ID: {folder["id"]} in parent ID: {parent_id}')
     return folder['id']
 
-def get_nested_folder_id(service, path_parts, root_folder_id):
+def get_nested_folder_id(service, path_parts, root_folder_id, silent=False):
     current_folder_id = root_folder_id
 
     for name in path_parts:
@@ -89,11 +147,103 @@ def get_nested_folder_id(service, path_parts, root_folder_id):
 
         folders = results.get('files', [])
         if not folders:
-            print(f'No folder found with name: {name} in parent ID: {current_folder_id}')
+            if not silent:
+                print(f'No folder found with name: {name} in parent ID: {current_folder_id}')
             return None
         current_folder_id = folders[0]['id']
-        print(f'Found folder: {folders[0]["name"]} with ID: {current_folder_id} in parent ID: {current_folder_id}')
+        if not silent:
+            print(f'Found folder: {folders[0]["name"]} with ID: {current_folder_id} in parent ID: {current_folder_id}')
     return current_folder_id
+
+def get_folder_path_and_contents(service, root_folder_name, path_parts, silent=False):
+    """
+    Get the full path from root to target folder and show target folder contents.
+    Returns a tuple of (path_array, target_folder_id, contents)
+    """
+    try:
+        # Get root folder
+        root_id = get_folder(service, root_folder_name)
+        if not root_id:
+            if not silent:
+                print(f'Root folder not found: {root_folder_name}')
+            return None, None, None
+        
+        # Build path array starting with root
+        path_array = [root_folder_name]
+        current_folder_id = root_id
+        
+        # Navigate through each path part
+        for part in path_parts:
+            path_array.append(part)
+            
+            query = (
+                f"name = '{part}' and '{current_folder_id}' in parents "
+                "and mimeType = 'application/vnd.google-apps.folder' and trashed = false"
+            )
+            
+            results = service.files().list(
+                q=query,
+                spaces='drive',
+                supportsAllDrives=True,
+                includeItemsFromAllDrives=True,
+                fields="nextPageToken, files(id, name, mimeType)",
+                pageSize=1
+            ).execute()
+            
+            folders = results.get('files', [])
+            if not folders:
+                if not silent:
+                    print(f'Folder not found: {part} in path {"/".join(path_array)}')
+                return path_array, None, None
+            
+            current_folder_id = folders[0]['id']
+        
+        # Get contents of target folder
+        contents_result = service.files().list(
+            q=f"'{current_folder_id}' in parents and trashed=false",
+            pageSize=1000,
+            supportsAllDrives=True,
+            includeItemsFromAllDrives=True,
+            fields="nextPageToken, files(id, name, mimeType, parents, modifiedTime)",
+        ).execute()
+        
+        contents = contents_result.get('files', [])
+        
+        # Display the full path and contents (only if not silent)
+        if not silent:
+            print(f'\nFull path traversal:')
+            for i, folder in enumerate(path_array):
+                indent = "  " * i
+                if i == 0:
+                    print(f'{indent}📁 {folder} (Root)')
+                elif i == len(path_array) - 1:
+                    print(f'{indent}└── 📁 {folder} (Target) - ID: {current_folder_id}')
+                else:
+                    print(f'{indent}└── 📁 {folder}')
+            
+            print(f'\nTarget folder contents ({len(contents)} items):')
+            if not contents:
+                print('  📂 Folder is empty')
+            else:
+                # Separate folders and files
+                folders = [item for item in contents if item['mimeType'] == 'application/vnd.google-apps.folder']
+                files = [item for item in contents if item['mimeType'] != 'application/vnd.google-apps.folder']
+                
+                # Display folders first
+                for folder in folders:
+                    print(f'  📁 {folder["name"]}')
+                
+                # Then display files
+                for file in files:
+                    file_type = '📊' if 'csv' in file.get('name', '').lower() else '📄'
+                    print(f'  {file_type} {file["name"]}')
+        
+        return path_array, current_folder_id, contents
+        
+    except Exception as e:
+        if not silent:
+            print(f'Error getting folder path and contents: {str(e)}')
+        return None, None, None
 
 def upload_file(service, file_path, folder_id):
     file_metadata = {
@@ -125,18 +275,83 @@ def list_drive_files(service, folder_id):
         print(f"File ID: {item['id']}, Name: {item['name']}, Type: {item['mimeType']}")
     return
 
-def file_match(folder_path, month, year):
+def file_match(folder_path, month, year, debug=False):
     matched_files = []
+    
+    # Debug: Check if folder exists and what's in it
+    if debug:
+        print(f"DEBUG: Looking in folder: {folder_path}")
+        print(f"DEBUG: Folder exists: {os.path.exists(folder_path)}")
+        if os.path.exists(folder_path):
+            all_files = os.listdir(folder_path)
+            print(f"DEBUG: Found {len(all_files)} total files: {all_files}")
+        print(f"DEBUG: Looking for pattern: *__{year}_{month}.csv")
+    
+    if not os.path.exists(folder_path):
+        if debug:
+            print(f"DEBUG: Folder {folder_path} does not exist!")
+        return matched_files
+    
     for file in os.listdir(folder_path):
-        if str(file.split("__")[1][:-4]) == f"{year}_{month}":
-            matched_files.append(file)
+        try:
+            if debug:
+                print(f"DEBUG: Checking file: {file}")
+            
+            # Skip files that don't match the expected pattern
+            if "__" not in file:
+                if debug:
+                    print(f"DEBUG: Skipping {file} - no '__' found")
+                continue
+                
+            if not file.endswith('.csv'):
+                if debug:
+                    print(f"DEBUG: Skipping {file} - not a .csv file")
+                continue
+            
+            # Split filename and check pattern: ACCOUNT__YEAR_MONTH.csv
+            parts = file.split("__")
+            if len(parts) >= 2:
+                date_part = parts[1][:-4]  # Remove .csv extension
+                if debug:
+                    print(f"DEBUG: File {file} has date part: '{date_part}', looking for: '{year}_{month}'")
+                
+                if date_part == f"{year}_{month}":
+                    matched_files.append(file)
+                    if debug:
+                        print(f"DEBUG: MATCH! Added {file}")
+                else:
+                    if debug:
+                        print(f"DEBUG: No match for {file}")
+            else:
+                if debug:
+                    print(f"DEBUG: Skipping {file} - not enough parts after splitting by '__'")
+        except (IndexError, ValueError) as e:
+            if debug:
+                print(f"DEBUG: Error processing {file}: {e}")
+            continue
+    
+    if debug:
+        print(f"DEBUG: Final matched files: {matched_files}")
+    
     return matched_files
 
 def file_match_upload(folder_path, destination_id, month, year):
     matched_files = []
     for file in os.listdir(folder_path):
-        if str(file.split("__")[1][:-4]) == f"{year}_{month}":
-            matched_files.append(file)
+        try:
+            # Skip files that don't match the expected pattern
+            if "__" not in file or not file.endswith('.csv'):
+                continue
+            
+            # Split filename and check pattern: ACCOUNT__YEAR_MONTH.csv
+            parts = file.split("__")
+            if len(parts) >= 2:
+                date_part = parts[1][:-4]  # Remove .csv extension
+                if date_part == f"{year}_{month}":
+                    matched_files.append(file)
+        except (IndexError, ValueError):
+            # Skip files that don't match the expected pattern
+            continue
     return matched_files
 
 if __name__ == '__main__':
@@ -173,5 +388,10 @@ if __name__ == '__main__':
                 for file in grab_these:
                     file_path = f"downloads/{file}"
                     upload_file(service, file_path, destination)
+            case "browse_target":
+                root_name = input("Enter root folder name: ")
+                target_path = input("Enter target path (e.g., '2025 PnL/January'): ")
+                path_parts = [part.strip() for part in target_path.split('/') if part.strip()]
+                path_array, folder_id, contents = get_folder_path_and_contents(service, root_name, path_parts)
             case "exit":
                 status = False
